@@ -90,6 +90,55 @@ def extract_amount(text: str) -> Optional[str]:
 
 def extract_vendor(text: str) -> Optional[str]:
     """Extract vendor name from receipt text."""
+    # First, check for specific known vendors with special patterns
+    # Los Angeles Department of Water & Power (case-insensitive, handles variations)
+    # Normalize text for searching (replace newlines with spaces)
+    normalized_text = re.sub(r'\s+', ' ', text)
+    
+    # Patterns to match Los Angeles Department of Water & Power
+    la_dwp_patterns = [
+        r'los\s+angeles\s+department\s+of\s+water\s*[&]\s*power',
+        r'los\s+angeles\s+department\s+of\s+water\s+and\s+power',
+        r'los\s+angeles\s+dept\s+of\s+water\s*[&]\s*power',
+        r'department\s+of\s+water\s*[&]\s*power',  # In case "Los Angeles" is missing
+    ]
+    
+    for pattern in la_dwp_patterns:
+        match = re.search(pattern, normalized_text, re.IGNORECASE)
+        if match:
+            vendor = match.group(0).strip()
+            # Normalize spacing
+            vendor = re.sub(r'\s+', ' ', vendor)
+            # Return in the exact format requested: "Los Angeles department of water & power"
+            # Capitalize first letter of each major word, keep "department" lowercase
+            parts = vendor.split()
+            normalized = []
+            for part in parts:
+                part_lower = part.lower().strip()
+                if part_lower == 'of' or part_lower == '&' or part_lower == 'and':
+                    normalized.append(part_lower)
+                elif part_lower == 'department' or part_lower == 'dept':
+                    normalized.append('department')  # Keep lowercase, normalize "dept" to "department"
+                elif part_lower == 'los':
+                    normalized.append('Los')
+                elif part_lower == 'angeles':
+                    normalized.append('Angeles')
+                elif part_lower == 'water':
+                    normalized.append('water')  # Keep lowercase as requested
+                elif part_lower == 'power':
+                    normalized.append('power')  # Keep lowercase as requested
+                else:
+                    normalized.append(part.capitalize())
+            result = ' '.join(normalized)
+            # Ensure "Los Angeles" prefix is present
+            if not result.lower().startswith('los angeles'):
+                # Check if "Los Angeles" appears earlier in the normalized text
+                la_match = re.search(r'los\s+angeles', normalized_text[:match.start()], re.IGNORECASE)
+                if la_match:
+                    result = 'Los Angeles ' + result
+            return result
+    
+    # Fallback to original logic for other vendors
     lines = text.split('\n')
     
     # Vendor name is usually at the top of the receipt
