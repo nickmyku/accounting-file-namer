@@ -138,6 +138,7 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
     """
     Extract vendor name from receipt text.
     Prioritizes vendor name from logo region if available.
+    Takes ALL text from logo region and removes dates and currency information.
     
     Args:
         text: Full OCR text from receipt
@@ -145,36 +146,47 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
     """
     # First, try to extract vendor name from logo text if available
     if logo_text:
-        logo_lines = logo_text.split('\n')
-        for line in logo_lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # Skip lines that are mostly numbers or dates
-            if re.match(r'^[\d\s\-\/\.:]+$', line):
-                continue
-            
-            # Skip common receipt header words
-            skip_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total']
-            if any(word in line.lower() for word in skip_words):
-                continue
-            
-            # If line looks like a vendor name (has letters, reasonable length)
-            if len(line) > 3 and re.search(r'[a-zA-Z]', line):
-                # Clean up common artifacts
-                vendor = re.sub(r'^[^\w]+|[^\w]+$', '', line)
-                # Remove extra whitespace
-                vendor = ' '.join(vendor.split())
-                if len(vendor) > 2:
-                    return vendor
+        vendor = logo_text.strip()
         
-        # If no individual line matched, try the whole logo text
-        if len(logo_text) > 3 and re.search(r'[a-zA-Z]', logo_text):
-            vendor = re.sub(r'^[^\w]+|[^\w]+$', '', logo_text)
-            vendor = ' '.join(vendor.split())
-            if len(vendor) > 2:
-                return vendor
+        # Remove date patterns (various formats)
+        date_patterns = [
+            r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',  # MM/DD/YYYY or DD/MM/YYYY
+            r'\d{4}[/-]\d{1,2}[/-]\d{1,2}',    # YYYY/MM/DD
+            r'\w+\s+\d{1,2},?\s+\d{4}',        # Month DD, YYYY
+            r'\d{1,2}\s+\w+\s+\d{4}',          # DD Month YYYY
+            r'\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?',  # Time formats
+        ]
+        
+        for pattern in date_patterns:
+            vendor = re.sub(pattern, '', vendor, flags=re.IGNORECASE)
+        
+        # Remove currency information (dollar signs, amounts, etc.)
+        currency_patterns = [
+            r'\$[\d,]+\.?\d{0,2}',              # $XX.XX or $XX
+            r'[\d,]+\.?\d{0,2}\s*\$',           # XX.XX $ (currency after amount)
+            r'(?:total|amount|due|balance|charge|tax|subtotal)[:\s]*\$?\s*[\d,]+\.?\d{0,2}',
+            r'\d+\.\d{2}',                      # Decimal amounts (likely currency)
+        ]
+        
+        for pattern in currency_patterns:
+            vendor = re.sub(pattern, '', vendor, flags=re.IGNORECASE)
+        
+        # Remove common receipt header words that might appear
+        skip_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total', 
+                     'amount', 'due', 'balance', 'charge', 'tax', 'subtotal']
+        words = vendor.split()
+        vendor = ' '.join([w for w in words if w.lower() not in skip_words])
+        
+        # Clean up: remove leading/trailing punctuation and whitespace
+        vendor = re.sub(r'^[^\w\s]+|[^\w\s]+$', '', vendor)
+        # Remove extra whitespace
+        vendor = ' '.join(vendor.split())
+        # Remove standalone numbers or number-only words
+        vendor = ' '.join([w for w in vendor.split() if not re.match(r'^[\d\s\-\/\.:]+$', w)])
+        
+        # Final check: ensure vendor has letters and reasonable length
+        if len(vendor) > 2 and re.search(r'[a-zA-Z]', vendor):
+            return vendor
     
     # Fallback: Vendor name is usually at the top of the receipt
     lines = text.split('\n')
