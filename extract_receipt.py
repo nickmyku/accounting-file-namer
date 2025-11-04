@@ -210,7 +210,7 @@ def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 
 
 
 def extract_date(text: str) -> Optional[str]:
-    """Extract transaction date from receipt text."""
+    """Extract transaction date from receipt text and format as YYYY-MM-DD."""
     # Common date patterns in receipts
     date_patterns = [
         r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',  # MM/DD/YYYY or DD/MM/YYYY
@@ -222,8 +222,63 @@ def extract_date(text: str) -> Optional[str]:
     for pattern in date_patterns:
         matches = re.findall(pattern, text, re.IGNORECASE)
         if matches:
-            # Return the first date found (usually the transaction date)
-            return matches[0]
+            # Parse the first date found and format as YYYY-MM-DD
+            date_str = matches[0]
+            try:
+                # Try parsing various date formats
+                parsed_date = None
+                
+                # Try MM/DD/YYYY or DD/MM/YYYY format
+                if '/' in date_str or '-' in date_str:
+                    parts = re.split(r'[/-]', date_str)
+                    if len(parts) == 3:
+                        # Check if first part is 4 digits (YYYY/MM/DD format)
+                        if len(parts[0]) == 4:
+                            parsed_date = datetime.strptime(date_str, '%Y/%m/%d' if '/' in date_str else '%Y-%m-%d')
+                        else:
+                            # Try MM/DD/YYYY first (US format)
+                            try:
+                                parsed_date = datetime.strptime(date_str, '%m/%d/%Y' if '/' in date_str else '%m-%d-%Y')
+                            except ValueError:
+                                # Try DD/MM/YYYY (European format)
+                                try:
+                                    parsed_date = datetime.strptime(date_str, '%d/%m/%Y' if '/' in date_str else '%d-%m-%Y')
+                                except ValueError:
+                                    # Try with 2-digit year
+                                    try:
+                                        parsed_date = datetime.strptime(date_str, '%m/%d/%y' if '/' in date_str else '%m-%d-%y')
+                                    except ValueError:
+                                        parsed_date = datetime.strptime(date_str, '%d/%m/%y' if '/' in date_str else '%d-%m-%y')
+                
+                # Try "Month DD, YYYY" format (e.g., "December 15, 2023")
+                if not parsed_date:
+                    try:
+                        parsed_date = datetime.strptime(date_str, '%B %d, %Y')
+                    except ValueError:
+                        try:
+                            parsed_date = datetime.strptime(date_str, '%B %d %Y')
+                        except ValueError:
+                            try:
+                                parsed_date = datetime.strptime(date_str, '%b %d, %Y')
+                            except ValueError:
+                                parsed_date = datetime.strptime(date_str, '%b %d %Y')
+                
+                # Try "DD Month YYYY" format (e.g., "15 December 2023")
+                if not parsed_date:
+                    try:
+                        parsed_date = datetime.strptime(date_str, '%d %B %Y')
+                    except ValueError:
+                        try:
+                            parsed_date = datetime.strptime(date_str, '%d %b %Y')
+                        except ValueError:
+                            pass
+                
+                if parsed_date:
+                    # Format as YYYY-MM-DD
+                    return parsed_date.strftime('%Y-%m-%d')
+            except (ValueError, AttributeError):
+                # If parsing fails, return None
+                continue
     
     return None
 
