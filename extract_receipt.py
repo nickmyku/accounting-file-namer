@@ -2,6 +2,7 @@
 """
 Receipt OCR Script
 Extracts transaction date, amount, and vendor name from a receipt image.
+Supports multiple image formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, and more.
 """
 
 import sys
@@ -17,11 +18,64 @@ except ImportError:
     print("Error: Required packages not installed. Please run: pip install -r requirements.txt")
     sys.exit(1)
 
+# Supported image formats
+SUPPORTED_FORMATS = {
+    'JPEG', 'JPG', 'PNG', 'GIF', 'BMP', 'TIFF', 'TIF', 
+    'WEBP', 'ICO', 'PCX', 'DCX', 'EPS', 'PCD', 'PSD',
+    'SGI', 'TGA', 'XBM', 'XPM', 'PPM', 'PGM', 'PBM'
+}
+
+
+def validate_image_format(image_path: str) -> bool:
+    """
+    Validate that the image file is in a supported format.
+    
+    Args:
+        image_path: Path to the image file
+        
+    Returns:
+        True if format is supported, False otherwise
+    """
+    try:
+        file_ext = Path(image_path).suffix.upper().lstrip('.')
+        if file_ext in SUPPORTED_FORMATS:
+            return True
+        
+        # Also check by attempting to open with PIL
+        # PIL might support formats not in our list
+        with Image.open(image_path) as img:
+            format_name = img.format
+            if format_name and format_name.upper() in SUPPORTED_FORMATS:
+                return True
+        
+        return False
+    except Exception:
+        return False
+
 
 def extract_text_from_image(image_path: str) -> str:
-    """Extract text from receipt image using OCR."""
+    """
+    Extract text from receipt image using OCR.
+    Supports multiple image formats including JPEG, PNG, GIF, BMP, TIFF, WebP, etc.
+    """
     try:
+        # Validate format
+        if not validate_image_format(image_path):
+            print(f"Warning: Image format may not be fully supported. Attempting to process anyway...", file=sys.stderr)
+        
+        # Open and process the image
         image = Image.open(image_path)
+        
+        # Convert to RGB if necessary (some formats like RGBA, P, etc. need conversion)
+        if image.mode not in ('RGB', 'L'):
+            # Convert to RGB for better OCR compatibility
+            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'RGBA':
+                rgb_image.paste(image, mask=image.split()[3])  # Use alpha channel as mask
+            else:
+                rgb_image.paste(image)
+            image = rgb_image
+        
         # Use Tesseract OCR with default settings
         text = pytesseract.image_to_string(image)
         return text
@@ -33,6 +87,7 @@ def extract_text_from_image(image_path: str) -> str:
 def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 0.15) -> Optional[str]:
     """
     Extract text from the logo region at the top of the receipt.
+    Supports multiple image formats.
     
     Args:
         image_path: Path to the receipt image
@@ -43,6 +98,16 @@ def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 
     """
     try:
         image = Image.open(image_path)
+        
+        # Convert to RGB if necessary for better OCR compatibility
+        if image.mode not in ('RGB', 'L'):
+            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'RGBA':
+                rgb_image.paste(image, mask=image.split()[3])
+            else:
+                rgb_image.paste(image)
+            image = rgb_image
+        
         width, height = image.size
         
         # Calculate logo region (top portion of image)
@@ -218,9 +283,13 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
 
 
 def main():
-    """Main function to process receipt image."""
+    """
+    Main function to process receipt image.
+    Supports multiple image formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, and more.
+    """
     if len(sys.argv) < 2:
-        print("Usage: python extract_receipt.py <path_to_receipt_image.jpg> [--debug]")
+        print("Usage: python extract_receipt.py <path_to_receipt_image> [--debug]")
+        print("\nSupported formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, PCX, EPS, PSD, and more")
         sys.exit(1)
     
     image_path = sys.argv[1]
@@ -229,6 +298,18 @@ def main():
     # Validate file exists
     if not Path(image_path).exists():
         print(f"Error: File not found: {image_path}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Check if file is likely an image
+    try:
+        with Image.open(image_path) as img:
+            format_name = img.format or "Unknown"
+            if debug_mode:
+                print(f"Image format detected: {format_name}", file=sys.stderr)
+                print(f"Image mode: {img.mode}", file=sys.stderr)
+                print(f"Image size: {img.size}", file=sys.stderr)
+    except Exception as e:
+        print(f"Error: File appears to be an unsupported image format: {e}", file=sys.stderr)
         sys.exit(1)
     
     # Extract text from image
