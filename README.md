@@ -20,13 +20,38 @@ A Python script that extracts transaction date, amount, and vendor name from rec
 ### Usage
 
 ```bash
-python extract_receipt.py <path_to_receipt_image.jpg>
+python extract_receipt.py <path_to_receipt_image> [--debug]
 ```
+
+### Supported Image Formats
+
+The script supports a wide range of image formats including:
+- **JPEG/JPG** - Most common format for photos
+- **PNG** - Lossless format with transparency support
+- **GIF** - Animated or static images
+- **BMP** - Windows bitmap format
+- **TIFF/TIF** - High-quality format often used for scanned documents
+- **WebP** - Modern web format
+- **ICO** - Icon format
+- **PCX** - Legacy format
+- **EPS** - Encapsulated PostScript
+- **PSD** - Adobe Photoshop format
+- And more formats supported by Pillow library
 
 ### Example
 
 ```bash
+# JPEG image
 python extract_receipt.py receipt.jpg
+
+# PNG image
+python extract_receipt.py receipt.png
+
+# TIFF image (common for scanned receipts)
+python extract_receipt.py receipt.tiff
+
+# WebP image
+python extract_receipt.py receipt.webp
 ```
 
 Output:
