@@ -30,6 +30,52 @@ def extract_text_from_image(image_path: str) -> str:
         sys.exit(1)
 
 
+def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 0.15) -> Optional[str]:
+    """
+    Extract text from the logo region at the top of the receipt.
+    
+    Args:
+        image_path: Path to the receipt image
+        logo_height_percent: Percentage of image height to use for logo region (default 15%)
+    
+    Returns:
+        Extracted text from logo region, or None if no text found
+    """
+    try:
+        image = Image.open(image_path)
+        width, height = image.size
+        
+        # Calculate logo region (top portion of image)
+        logo_height = int(height * logo_height_percent)
+        
+        # Crop the top portion of the image
+        logo_region = image.crop((0, 0, width, logo_height))
+        
+        # Enhance the logo region for better OCR
+        # Convert to grayscale if it's not already
+        if logo_region.mode != 'L':
+            logo_region = logo_region.convert('L')
+        
+        # Use OCR with configuration optimized for logos/titles
+        # Page segmentation mode 6 = Assume a single uniform block of text
+        # Page segmentation mode 7 = Treat the image as a single text line
+        # Page segmentation mode 8 = Treat the image as a single word
+        custom_config = r'--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.,- '
+        
+        logo_text = pytesseract.image_to_string(logo_region, config=custom_config)
+        
+        # Clean up the text
+        logo_text = logo_text.strip()
+        
+        if logo_text and len(logo_text) > 2:
+            return logo_text
+        
+        return None
+    except Exception as e:
+        print(f"Warning: Could not extract text from logo region: {e}", file=sys.stderr)
+        return None
+
+
 def extract_date(text: str) -> Optional[str]:
     """Extract transaction date from receipt text."""
     # Common date patterns in receipts
@@ -88,11 +134,51 @@ def extract_amount(text: str) -> Optional[str]:
     return None
 
 
-def extract_vendor(text: str) -> Optional[str]:
-    """Extract vendor name from receipt text."""
+def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
+    """
+    Extract vendor name from receipt text.
+    Prioritizes vendor name from logo region if available.
+    
+    Args:
+        text: Full OCR text from receipt
+        logo_text: Text extracted from logo region (if available)
+    """
+    # First, try to extract vendor name from logo text if available
+    if logo_text:
+        logo_lines = logo_text.split('\n')
+        for line in logo_lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Skip lines that are mostly numbers or dates
+            if re.match(r'^[\d\s\-\/\.:]+$', line):
+                continue
+            
+            # Skip common receipt header words
+            skip_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total']
+            if any(word in line.lower() for word in skip_words):
+                continue
+            
+            # If line looks like a vendor name (has letters, reasonable length)
+            if len(line) > 3 and re.search(r'[a-zA-Z]', line):
+                # Clean up common artifacts
+                vendor = re.sub(r'^[^\w]+|[^\w]+$', '', line)
+                # Remove extra whitespace
+                vendor = ' '.join(vendor.split())
+                if len(vendor) > 2:
+                    return vendor
+        
+        # If no individual line matched, try the whole logo text
+        if len(logo_text) > 3 and re.search(r'[a-zA-Z]', logo_text):
+            vendor = re.sub(r'^[^\w]+|[^\w]+$', '', logo_text)
+            vendor = ' '.join(vendor.split())
+            if len(vendor) > 2:
+                return vendor
+    
+    # Fallback: Vendor name is usually at the top of the receipt
     lines = text.split('\n')
     
-    # Vendor name is usually at the top of the receipt
     # Look for the first substantial line (not empty, not all numbers)
     for line in lines[:10]:  # Check first 10 lines
         line = line.strip()
@@ -112,6 +198,7 @@ def extract_vendor(text: str) -> Optional[str]:
         if len(line) > 3 and re.search(r'[a-zA-Z]', line):
             # Clean up common artifacts
             vendor = re.sub(r'^[^\w]+|[^\w]+$', '', line)
+            vendor = ' '.join(vendor.split())
             if len(vendor) > 2:
                 return vendor
     
@@ -136,8 +223,12 @@ def main():
     print("Extracting text from receipt...", file=sys.stderr)
     text = extract_text_from_image(image_path)
     
+    # Extract text from logo region (top of receipt)
+    print("Extracting text from logo region...", file=sys.stderr)
+    logo_text = extract_text_from_logo_region(image_path)
+    
     # Extract information
-    vendor = extract_vendor(text)
+    vendor = extract_vendor(text, logo_text)
     date = extract_date(text)
     amount = extract_amount(text)
     
