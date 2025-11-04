@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps, ImageEnhance, ImageFilter
     import pytesseract
 except ImportError:
     print("Error: Required packages not installed. Please run: pip install -r requirements.txt")
@@ -24,6 +24,58 @@ SUPPORTED_FORMATS = {
     'WEBP', 'ICO', 'PCX', 'DCX', 'EPS', 'PCD', 'PSD',
     'SGI', 'TGA', 'XBM', 'XPM', 'PPM', 'PGM', 'PBM'
 }
+
+
+def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
+    """
+    Preprocess image to improve OCR accuracy.
+    Applies contrast enhancement, noise reduction, sharpening, and binarization.
+    
+    Args:
+        image: PIL Image object to preprocess
+        
+    Returns:
+        Preprocessed PIL Image object optimized for OCR
+    """
+    # Convert to grayscale if not already (better for OCR)
+    if image.mode != 'L':
+        image = image.convert('L')
+    
+    # Upscale image if it's too small (improves OCR accuracy)
+    # Minimum recommended size for OCR is around 300 DPI
+    width, height = image.size
+    min_dimension = min(width, height)
+    
+    # If image is smaller than 800px on shortest side, upscale it
+    if min_dimension < 800:
+        scale_factor = 800 / min_dimension
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
+        image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    
+    # Enhance contrast using autocontrast (stretches histogram to full range)
+    # This normalizes the brightness and improves text visibility
+    image = ImageOps.autocontrast(image, cutoff=2)
+    
+    # Apply additional contrast enhancement for clearer text
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.5)  # Increase contrast by 50%
+    
+    # Sharpen the image to make text edges clearer and more defined
+    image = image.filter(ImageFilter.SHARPEN)
+    
+    # Apply binarization/thresholding for better text recognition
+    # Convert to binary (black and white) which helps separate text from background
+    # Use Otsu's method equivalent: find optimal threshold automatically
+    # For simplicity, use adaptive thresholding with a fixed threshold
+    threshold = 128
+    image = image.point(lambda p: 255 if p > threshold else 0, mode='1')
+    
+    # Convert back to grayscale ('L') mode for pytesseract compatibility
+    # Mode '1' is 1-bit black/white, pytesseract works better with 'L' (8-bit grayscale)
+    image = image.convert('L')
+    
+    return image
 
 
 def validate_image_format(image_path: str) -> bool:
@@ -63,21 +115,32 @@ def extract_text_from_image(image_path: str) -> str:
         if not validate_image_format(image_path):
             print(f"Warning: Image format may not be fully supported. Attempting to process anyway...", file=sys.stderr)
         
-        # Open and process the image
-        image = Image.open(image_path)
+        # Open and process the image with proper context management
+        with Image.open(image_path) as img:
+            # Handle EXIF orientation data
+            try:
+                # Automatically rotate image based on EXIF orientation tag
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                # If EXIF reading fails, continue without rotation
+                pass
+            
+            # Convert to RGB if necessary (some formats like RGBA, P, etc. need conversion)
+            if img.mode not in ('RGB', 'L'):
+                # Convert to RGB for better OCR compatibility
+                rgb_image = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'RGBA':
+                    rgb_image.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)  # Use alpha channel as mask
+                else:
+                    rgb_image.paste(img)
+                img = rgb_image
+            
+            # Preprocess image for better OCR accuracy
+            img = preprocess_image_for_ocr(img)
+            
+            # Use Tesseract OCR with default settings
+            text = pytesseract.image_to_string(img)
         
-        # Convert to RGB if necessary (some formats like RGBA, P, etc. need conversion)
-        if image.mode not in ('RGB', 'L'):
-            # Convert to RGB for better OCR compatibility
-            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
-            if image.mode == 'RGBA':
-                rgb_image.paste(image, mask=image.split()[3])  # Use alpha channel as mask
-            else:
-                rgb_image.paste(image)
-            image = rgb_image
-        
-        # Use Tesseract OCR with default settings
-        text = pytesseract.image_to_string(image)
         return text
     except Exception as e:
         print(f"Error reading image: {e}", file=sys.stderr)
@@ -97,43 +160,48 @@ def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 
         Extracted text from logo region, or None if no text found
     """
     try:
-        image = Image.open(image_path)
-        
-        # Convert to RGB if necessary for better OCR compatibility
-        if image.mode not in ('RGB', 'L'):
-            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
-            if image.mode == 'RGBA':
-                rgb_image.paste(image, mask=image.split()[3])
-            else:
-                rgb_image.paste(image)
-            image = rgb_image
-        
-        width, height = image.size
-        
-        # Calculate logo region (top portion of image)
-        logo_height = int(height * logo_height_percent)
-        
-        # Crop the top portion of the image
-        logo_region = image.crop((0, 0, width, logo_height))
-        
-        # Enhance the logo region for better OCR
-        # Convert to grayscale if it's not already
-        if logo_region.mode != 'L':
-            logo_region = logo_region.convert('L')
-        
-        # Use OCR with configuration optimized for logos/titles
-        # Page segmentation mode 6 = Assume a single uniform block of text
-        # Page segmentation mode 7 = Treat the image as a single text line
-        # Page segmentation mode 8 = Treat the image as a single word
-        custom_config = r'--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.,- '
-        
-        logo_text = pytesseract.image_to_string(logo_region, config=custom_config)
-        
-        # Clean up the text
-        logo_text = logo_text.strip()
-        
-        if logo_text and len(logo_text) > 2:
-            return logo_text
+        with Image.open(image_path) as img:
+            # Handle EXIF orientation data
+            try:
+                # Automatically rotate image based on EXIF orientation tag
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                # If EXIF reading fails, continue without rotation
+                pass
+            
+            # Convert to RGB if necessary for better OCR compatibility
+            if img.mode not in ('RGB', 'L'):
+                rgb_image = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'RGBA':
+                    rgb_image.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
+                else:
+                    rgb_image.paste(img)
+                img = rgb_image
+            
+            width, height = img.size
+            
+            # Calculate logo region (top portion of image)
+            logo_height = int(height * logo_height_percent)
+            
+            # Crop the top portion of the image
+            logo_region = img.crop((0, 0, width, logo_height))
+            
+            # Preprocess logo region for better OCR accuracy
+            logo_region = preprocess_image_for_ocr(logo_region)
+            
+            # Use OCR with configuration optimized for logos/titles
+            # Page segmentation mode 6 = Assume a single uniform block of text
+            # Page segmentation mode 7 = Treat the image as a single text line
+            # Page segmentation mode 8 = Treat the image as a single word
+            custom_config = r'--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.,- '
+            
+            logo_text = pytesseract.image_to_string(logo_region, config=custom_config)
+            
+            # Clean up the text
+            logo_text = logo_text.strip()
+            
+            if logo_text and len(logo_text) > 2:
+                return logo_text
         
         return None
     except Exception as e:
