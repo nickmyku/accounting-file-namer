@@ -326,7 +326,8 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
     """
     Extract vendor name from receipt text.
     Prioritizes vendor name from logo region if available.
-    Takes ALL text from logo region and removes dates and currency information.
+    Only extracts text that is part of the vendor name or logo area.
+    Removes all extraneous information (addresses, phone numbers, URLs, etc.).
     
     Args:
         text: Full OCR text from receipt
@@ -334,7 +335,65 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
     """
     # First, try to extract vendor name from logo text if available
     if logo_text:
-        vendor = logo_text.strip()
+        # Split logo text into lines - vendor name is typically on the first line(s)
+        lines = logo_text.strip().split('\n')
+        
+        # Process lines to find vendor name - stop at first line with extraneous info
+        vendor_lines = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Skip lines that are clearly not vendor names
+            # Skip lines with phone numbers
+            if re.search(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', line):
+                break
+            
+            # Skip lines with URLs/websites
+            if re.search(r'https?://|www\.|\.com|\.net|\.org|\.co\.', line, re.IGNORECASE):
+                break
+            
+            # Skip lines with email addresses
+            if re.search(r'@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', line):
+                break
+            
+            # Skip lines that look like addresses (contain common address keywords)
+            if re.search(r'\b(street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|court|ct|plaza|plz|suite|ste|unit|apt|apartment)\b', line, re.IGNORECASE):
+                break
+            
+            # Skip lines with zip codes (5 digits or 5+4 format)
+            if re.search(r'\b\d{5}(-\d{4})?\b', line):
+                break
+            
+            # Skip lines with store numbers or location numbers
+            if re.search(r'\b(store|location|loc|#)\s*[:#]?\s*\d+', line, re.IGNORECASE):
+                break
+            
+            # Skip lines that are dates or times
+            if re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}:\d{2}', line):
+                continue  # Skip this line but continue checking others
+            
+            # Skip lines that are currency amounts
+            if re.search(r'\$[\d,]+\.?\d{0,2}|[\d,]+\.?\d{0,2}\s*\$', line):
+                continue
+            
+            # Skip lines that are mostly numbers or special characters
+            if re.match(r'^[\d\s\-\/\.:]+$', line):
+                continue
+            
+            # If line has letters and looks like a vendor name, add it
+            if re.search(r'[a-zA-Z]', line) and len(line) > 2:
+                vendor_lines.append(line)
+                # Stop after collecting first 2-3 lines (vendor names are usually short)
+                if len(vendor_lines) >= 3:
+                    break
+        
+        if vendor_lines:
+            vendor = ' '.join(vendor_lines)
+        else:
+            # Fallback: use the first line if no good lines found
+            vendor = lines[0].strip() if lines else logo_text.strip()
         
         # Remove date patterns (various formats)
         date_patterns = [
@@ -359,9 +418,22 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
         for pattern in currency_patterns:
             vendor = re.sub(pattern, '', vendor, flags=re.IGNORECASE)
         
+        # Remove phone numbers
+        vendor = re.sub(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', '', vendor)
+        
+        # Remove URLs/websites
+        vendor = re.sub(r'https?://[^\s]+|www\.[^\s]+|[^\s]+\.(com|net|org|co)\b', '', vendor, flags=re.IGNORECASE)
+        
+        # Remove email addresses
+        vendor = re.sub(r'[^\s]+@[^\s]+', '', vendor)
+        
+        # Remove zip codes
+        vendor = re.sub(r'\b\d{5}(-\d{4})?\b', '', vendor)
+        
         # Remove common receipt header words that might appear
         skip_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total', 
-                     'amount', 'due', 'balance', 'charge', 'tax', 'subtotal']
+                     'amount', 'due', 'balance', 'charge', 'tax', 'subtotal',
+                     'store', 'location', 'phone', 'tel', 'fax', 'email', 'web']
         words = vendor.split()
         vendor = ' '.join([w for w in words if w.lower() not in skip_words])
         
@@ -389,8 +461,34 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
         if re.match(r'^[\d\s\-\/\.:]+$', line):
             continue
         
+        # Skip lines with phone numbers
+        if re.search(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', line):
+            continue
+        
+        # Skip lines with URLs/websites
+        if re.search(r'https?://|www\.|\.com|\.net|\.org|\.co\.', line, re.IGNORECASE):
+            continue
+        
+        # Skip lines with email addresses
+        if re.search(r'@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', line):
+            continue
+        
+        # Skip lines that look like addresses
+        if re.search(r'\b(street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|court|ct|plaza|plz|suite|ste|unit|apt|apartment)\b', line, re.IGNORECASE):
+            continue
+        
+        # Skip lines with zip codes
+        if re.search(r'\b\d{5}(-\d{4})?\b', line):
+            continue
+        
+        # Skip lines with store numbers
+        if re.search(r'\b(store|location|loc|#)\s*[:#]?\s*\d+', line, re.IGNORECASE):
+            continue
+        
         # Skip common receipt header words
-        skip_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total']
+        skip_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total', 
+                     'amount', 'due', 'balance', 'charge', 'tax', 'subtotal',
+                     'store', 'location', 'phone', 'tel', 'fax', 'email', 'web']
         if any(word in line.lower() for word in skip_words):
             continue
         
@@ -399,6 +497,14 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
             # Clean up common artifacts
             vendor = re.sub(r'^[^\w]+|[^\w]+$', '', line)
             vendor = ' '.join(vendor.split())
+            
+            # Remove any remaining extraneous patterns
+            vendor = re.sub(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', '', vendor)  # Phone numbers
+            vendor = re.sub(r'https?://[^\s]+|www\.[^\s]+|[^\s]+\.(com|net|org|co)\b', '', vendor, flags=re.IGNORECASE)  # URLs
+            vendor = re.sub(r'[^\s]+@[^\s]+', '', vendor)  # Emails
+            vendor = re.sub(r'\b\d{5}(-\d{4})?\b', '', vendor)  # Zip codes
+            vendor = ' '.join(vendor.split())
+            
             if len(vendor) > 2:
                 return vendor
     
