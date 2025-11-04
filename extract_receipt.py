@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps, ImageEnhance, ImageFilter
     import pytesseract
 except ImportError:
     print("Error: Required packages not installed. Please run: pip install -r requirements.txt")
@@ -24,6 +24,58 @@ SUPPORTED_FORMATS = {
     'WEBP', 'ICO', 'PCX', 'DCX', 'EPS', 'PCD', 'PSD',
     'SGI', 'TGA', 'XBM', 'XPM', 'PPM', 'PGM', 'PBM'
 }
+
+
+def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
+    """
+    Preprocess image to improve OCR accuracy.
+    Applies contrast enhancement, noise reduction, sharpening, and binarization.
+    
+    Args:
+        image: PIL Image object to preprocess
+        
+    Returns:
+        Preprocessed PIL Image object optimized for OCR
+    """
+    # Convert to grayscale if not already (better for OCR)
+    if image.mode != 'L':
+        image = image.convert('L')
+    
+    # Upscale image if it's too small (improves OCR accuracy)
+    # Minimum recommended size for OCR is around 300 DPI
+    width, height = image.size
+    min_dimension = min(width, height)
+    
+    # If image is smaller than 800px on shortest side, upscale it
+    if min_dimension < 800:
+        scale_factor = 800 / min_dimension
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
+        image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    
+    # Enhance contrast using autocontrast (stretches histogram to full range)
+    # This normalizes the brightness and improves text visibility
+    image = ImageOps.autocontrast(image, cutoff=2)
+    
+    # Apply additional contrast enhancement for clearer text
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.5)  # Increase contrast by 50%
+    
+    # Sharpen the image to make text edges clearer and more defined
+    image = image.filter(ImageFilter.SHARPEN)
+    
+    # Apply binarization/thresholding for better text recognition
+    # Convert to binary (black and white) which helps separate text from background
+    # Use Otsu's method equivalent: find optimal threshold automatically
+    # For simplicity, use adaptive thresholding with a fixed threshold
+    threshold = 128
+    image = image.point(lambda p: 255 if p > threshold else 0, mode='1')
+    
+    # Convert back to grayscale ('L') mode for pytesseract compatibility
+    # Mode '1' is 1-bit black/white, pytesseract works better with 'L' (8-bit grayscale)
+    image = image.convert('L')
+    
+    return image
 
 
 def validate_image_format(image_path: str) -> bool:
@@ -67,7 +119,6 @@ def extract_text_from_image(image_path: str) -> str:
         with Image.open(image_path) as img:
             # Handle EXIF orientation data
             try:
-                from PIL import ImageOps
                 # Automatically rotate image based on EXIF orientation tag
                 img = ImageOps.exif_transpose(img)
             except Exception:
@@ -83,6 +134,9 @@ def extract_text_from_image(image_path: str) -> str:
                 else:
                     rgb_image.paste(img)
                 img = rgb_image
+            
+            # Preprocess image for better OCR accuracy
+            img = preprocess_image_for_ocr(img)
             
             # Use Tesseract OCR with default settings
             text = pytesseract.image_to_string(img)
@@ -109,7 +163,6 @@ def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 
         with Image.open(image_path) as img:
             # Handle EXIF orientation data
             try:
-                from PIL import ImageOps
                 # Automatically rotate image based on EXIF orientation tag
                 img = ImageOps.exif_transpose(img)
             except Exception:
@@ -133,10 +186,8 @@ def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 
             # Crop the top portion of the image
             logo_region = img.crop((0, 0, width, logo_height))
             
-            # Enhance the logo region for better OCR
-            # Convert to grayscale if it's not already
-            if logo_region.mode != 'L':
-                logo_region = logo_region.convert('L')
+            # Preprocess logo region for better OCR accuracy
+            logo_region = preprocess_image_for_ocr(logo_region)
             
             # Use OCR with configuration optimized for logos/titles
             # Page segmentation mode 6 = Assume a single uniform block of text
