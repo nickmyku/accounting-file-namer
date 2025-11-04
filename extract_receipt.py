@@ -89,80 +89,108 @@ def extract_amount(text: str) -> Optional[str]:
 
 
 def extract_vendor(text: str) -> Optional[str]:
-    """Extract vendor name from receipt text."""
-    # First, check for specific known vendors with special patterns
-    # Los Angeles Department of Water & Power (case-insensitive, handles variations)
-    # Normalize text for searching (replace newlines with spaces)
-    normalized_text = re.sub(r'\s+', ' ', text)
-    
-    # Patterns to match Los Angeles Department of Water & Power
-    la_dwp_patterns = [
-        r'los\s+angeles\s+department\s+of\s+water\s*[&]\s*power',
-        r'los\s+angeles\s+department\s+of\s+water\s+and\s+power',
-        r'los\s+angeles\s+dept\s+of\s+water\s*[&]\s*power',
-        r'department\s+of\s+water\s*[&]\s*power',  # In case "Los Angeles" is missing
-    ]
-    
-    for pattern in la_dwp_patterns:
-        match = re.search(pattern, normalized_text, re.IGNORECASE)
-        if match:
-            vendor = match.group(0).strip()
-            # Normalize spacing
-            vendor = re.sub(r'\s+', ' ', vendor)
-            # Return in the exact format requested: "Los Angeles department of water & power"
-            # Capitalize first letter of each major word, keep "department" lowercase
-            parts = vendor.split()
-            normalized = []
-            for part in parts:
-                part_lower = part.lower().strip()
-                if part_lower == 'of' or part_lower == '&' or part_lower == 'and':
-                    normalized.append(part_lower)
-                elif part_lower == 'department' or part_lower == 'dept':
-                    normalized.append('department')  # Keep lowercase, normalize "dept" to "department"
-                elif part_lower == 'los':
-                    normalized.append('Los')
-                elif part_lower == 'angeles':
-                    normalized.append('Angeles')
-                elif part_lower == 'water':
-                    normalized.append('water')  # Keep lowercase as requested
-                elif part_lower == 'power':
-                    normalized.append('power')  # Keep lowercase as requested
-                else:
-                    normalized.append(part.capitalize())
-            result = ' '.join(normalized)
-            # Ensure "Los Angeles" prefix is present
-            if not result.lower().startswith('los angeles'):
-                # Check if "Los Angeles" appears earlier in the normalized text
-                la_match = re.search(r'los\s+angeles', normalized_text[:match.start()], re.IGNORECASE)
-                if la_match:
-                    result = 'Los Angeles ' + result
-            return result
-    
-    # Fallback to original logic for other vendors
+    """Extract vendor name from receipt text, handling multi-line vendor names."""
     lines = text.split('\n')
     
     # Vendor name is usually at the top of the receipt
-    # Look for the first substantial line (not empty, not all numbers)
-    for line in lines[:10]:  # Check first 10 lines
+    # Collect consecutive lines that appear to be part of the vendor name
+    vendor_lines = []
+    
+    # Patterns that indicate we've moved past the vendor name
+    stop_patterns = [
+        r'^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',  # Date patterns
+        r'^\s*\d{4}[/-]\d{1,2}[/-]\d{1,2}',    # Date patterns
+        r'^\s*\$\s*\d+',                        # Amount patterns
+        r'^\s*(?:total|amount|due|balance|charge)[:\s]*\$?\s*\d+',  # Amount keywords
+        r'^\s*(?:receipt|invoice|transaction|date|time)\s*[:]?\s*',  # Receipt metadata
+        r'^[\d\s\-\/\.:]+$',                    # Lines that are mostly numbers/punctuation
+    ]
+    
+    # Words that indicate we've moved past the vendor name
+    stop_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total', 'amount', 'due']
+    
+    # Check first 15 lines (vendor names typically appear near the top)
+    for i, line in enumerate(lines[:15]):
         line = line.strip()
+        
+        # Skip empty lines initially, but stop collecting if we hit empty lines after starting
         if not line:
+            if vendor_lines:
+                # Empty line after collecting vendor lines likely means end of vendor name
+                break
             continue
         
-        # Skip lines that are mostly numbers or dates
-        if re.match(r'^[\d\s\-\/\.:]+$', line):
+        # Check if this line indicates we've moved past the vendor name
+        should_stop = False
+        
+        # Check against stop patterns
+        for pattern in stop_patterns:
+            if re.match(pattern, line, re.IGNORECASE):
+                should_stop = True
+                break
+        
+        # Check against stop words (only if they appear at the start of the line)
+        if not should_stop:
+            line_lower = line.lower()
+            for word in stop_words:
+                if line_lower.startswith(word):
+                    should_stop = True
+                    break
+        
+        if should_stop:
+            # Stop collecting if we already have vendor lines
+            if vendor_lines:
+                break
+            # Otherwise, skip this line and continue
             continue
         
-        # Skip common receipt header words
-        skip_words = ['receipt', 'invoice', 'transaction', 'date', 'time', 'total']
-        if any(word in line.lower() for word in skip_words):
-            continue
+        # Check if line looks like it could be part of a vendor name
+        # Should have some letters, not be mostly numbers
+        if re.search(r'[a-zA-Z]', line) and not re.match(r'^[\d\s\-\/\.:]+$', line):
+            line_length = len(line)
+            
+            # Check if line starts with common non-vendor indicators (address, contact info)
+            if re.match(r'^\s*(?:phone|fax|email|www\.|http|tel|address)', line, re.IGNORECASE):
+                # Stop if we've already collected vendor lines
+                if vendor_lines:
+                    break
+                continue
+            
+            # If we've already started collecting vendor lines, be more lenient
+            # Allow continuation lines that are part of multi-line vendor names
+            if vendor_lines:
+                # Allow continuation lines that are reasonable length and contain letters
+                if line_length <= 80 and re.search(r'[a-zA-Z]', line):
+                    vendor_lines.append(line)
+                    continue
+                else:
+                    # Line doesn't look like continuation, stop collecting
+                    break
+            
+            # For the first line, be more selective
+            # Skip if line is too short (likely OCR artifact) or too long (likely address/description)
+            if 3 <= line_length <= 70:
+                vendor_lines.append(line)
+                continue
         
-        # If line looks like a vendor name (has letters, reasonable length)
-        if len(line) > 3 and re.search(r'[a-zA-Z]', line):
-            # Clean up common artifacts
-            vendor = re.sub(r'^[^\w]+|[^\w]+$', '', line)
-            if len(vendor) > 2:
-                return vendor
+        # If we've collected some vendor lines and hit something that doesn't fit, stop
+        if vendor_lines:
+            break
+    
+    # Combine collected lines into vendor name
+    if vendor_lines:
+        # Join lines with spaces, normalize whitespace
+        vendor = ' '.join(vendor_lines)
+        vendor = re.sub(r'\s+', ' ', vendor).strip()
+        
+        # Clean up common OCR artifacts at start/end
+        vendor = re.sub(r'^[^\w&]+|[^\w&]+$', '', vendor)
+        
+        # Remove trailing punctuation that's likely not part of name
+        vendor = re.sub(r'[,;]+$', '', vendor)
+        
+        if len(vendor) > 2:
+            return vendor
     
     return None
 
