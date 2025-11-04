@@ -63,21 +63,30 @@ def extract_text_from_image(image_path: str) -> str:
         if not validate_image_format(image_path):
             print(f"Warning: Image format may not be fully supported. Attempting to process anyway...", file=sys.stderr)
         
-        # Open and process the image
-        image = Image.open(image_path)
+        # Open and process the image with proper context management
+        with Image.open(image_path) as img:
+            # Handle EXIF orientation data
+            try:
+                from PIL import ImageOps
+                # Automatically rotate image based on EXIF orientation tag
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                # If EXIF reading fails, continue without rotation
+                pass
+            
+            # Convert to RGB if necessary (some formats like RGBA, P, etc. need conversion)
+            if img.mode not in ('RGB', 'L'):
+                # Convert to RGB for better OCR compatibility
+                rgb_image = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'RGBA':
+                    rgb_image.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)  # Use alpha channel as mask
+                else:
+                    rgb_image.paste(img)
+                img = rgb_image
+            
+            # Use Tesseract OCR with default settings
+            text = pytesseract.image_to_string(img)
         
-        # Convert to RGB if necessary (some formats like RGBA, P, etc. need conversion)
-        if image.mode not in ('RGB', 'L'):
-            # Convert to RGB for better OCR compatibility
-            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
-            if image.mode == 'RGBA':
-                rgb_image.paste(image, mask=image.split()[3])  # Use alpha channel as mask
-            else:
-                rgb_image.paste(image)
-            image = rgb_image
-        
-        # Use Tesseract OCR with default settings
-        text = pytesseract.image_to_string(image)
         return text
     except Exception as e:
         print(f"Error reading image: {e}", file=sys.stderr)
@@ -97,43 +106,51 @@ def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 
         Extracted text from logo region, or None if no text found
     """
     try:
-        image = Image.open(image_path)
-        
-        # Convert to RGB if necessary for better OCR compatibility
-        if image.mode not in ('RGB', 'L'):
-            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
-            if image.mode == 'RGBA':
-                rgb_image.paste(image, mask=image.split()[3])
-            else:
-                rgb_image.paste(image)
-            image = rgb_image
-        
-        width, height = image.size
-        
-        # Calculate logo region (top portion of image)
-        logo_height = int(height * logo_height_percent)
-        
-        # Crop the top portion of the image
-        logo_region = image.crop((0, 0, width, logo_height))
-        
-        # Enhance the logo region for better OCR
-        # Convert to grayscale if it's not already
-        if logo_region.mode != 'L':
-            logo_region = logo_region.convert('L')
-        
-        # Use OCR with configuration optimized for logos/titles
-        # Page segmentation mode 6 = Assume a single uniform block of text
-        # Page segmentation mode 7 = Treat the image as a single text line
-        # Page segmentation mode 8 = Treat the image as a single word
-        custom_config = r'--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.,- '
-        
-        logo_text = pytesseract.image_to_string(logo_region, config=custom_config)
-        
-        # Clean up the text
-        logo_text = logo_text.strip()
-        
-        if logo_text and len(logo_text) > 2:
-            return logo_text
+        with Image.open(image_path) as img:
+            # Handle EXIF orientation data
+            try:
+                from PIL import ImageOps
+                # Automatically rotate image based on EXIF orientation tag
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                # If EXIF reading fails, continue without rotation
+                pass
+            
+            # Convert to RGB if necessary for better OCR compatibility
+            if img.mode not in ('RGB', 'L'):
+                rgb_image = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'RGBA':
+                    rgb_image.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
+                else:
+                    rgb_image.paste(img)
+                img = rgb_image
+            
+            width, height = img.size
+            
+            # Calculate logo region (top portion of image)
+            logo_height = int(height * logo_height_percent)
+            
+            # Crop the top portion of the image
+            logo_region = img.crop((0, 0, width, logo_height))
+            
+            # Enhance the logo region for better OCR
+            # Convert to grayscale if it's not already
+            if logo_region.mode != 'L':
+                logo_region = logo_region.convert('L')
+            
+            # Use OCR with configuration optimized for logos/titles
+            # Page segmentation mode 6 = Assume a single uniform block of text
+            # Page segmentation mode 7 = Treat the image as a single text line
+            # Page segmentation mode 8 = Treat the image as a single word
+            custom_config = r'--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.,- '
+            
+            logo_text = pytesseract.image_to_string(logo_region, config=custom_config)
+            
+            # Clean up the text
+            logo_text = logo_text.strip()
+            
+            if logo_text and len(logo_text) > 2:
+                return logo_text
         
         return None
     except Exception as e:
