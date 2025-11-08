@@ -1,15 +1,16 @@
 # Receipt OCR Extraction Tool
 
-A Python-based OCR (Optical Character Recognition) script that automatically extracts key accounting information from receipt images. The script processes receipt images to extract vendor name, transaction date, and transaction amount, making it useful for accounting file organization and record-keeping.
+A Python-based OCR (Optical Character Recognition) script that automatically extracts key accounting information from receipt images and PDF files. The script processes receipt images and PDFs to extract vendor name, transaction date, and transaction amount, making it useful for accounting file organization and record-keeping.
 
 ## Project Overview
 
-**Purpose**: Extract structured data (vendor, date, amount) from receipt images for accounting purposes.
+**Purpose**: Extract structured data (vendor, date, amount) from receipt images and PDF files for accounting purposes.
 
-**Main Script**: `extract_receipt.py` - Command-line tool that processes receipt images and outputs extracted information.
+**Main Script**: `extract_receipt.py` - Command-line tool that processes receipt images and PDF files and outputs extracted information.
 
 **Key Functionality**:
-- Performs OCR on receipt images using Tesseract
+- Performs OCR on receipt images and PDF files using Tesseract
+- Converts PDF pages to images for OCR processing
 - Applies image preprocessing to improve OCR accuracy
 - Extracts vendor name from logo/header region
 - Parses transaction date in multiple formats
@@ -34,6 +35,11 @@ A Python-based OCR (Optical Character Recognition) script that automatically ext
 - **macOS**: `brew install tesseract`
 - **Windows**: Download from https://github.com/UB-Mannheim/tesseract/wiki
 
+**Poppler** (required for PDF support):
+- **Ubuntu/Debian**: `sudo apt-get install poppler-utils`
+- **macOS**: `brew install poppler`
+- **Windows**: Download from https://github.com/oschwartz10612/poppler-windows/releases
+
 ### Python Dependencies
 
 Install Python packages from `requirements.txt`:
@@ -44,17 +50,19 @@ pip install -r requirements.txt
 **Required packages**:
 - `Pillow>=10.0.0` - Image processing library
 - `pytesseract>=0.3.10` - Python wrapper for Tesseract OCR
+- `pdf2image>=1.16.0` - PDF to image conversion library
 
 **Python version**: Python 3.x required (tested with Python 3.12)
 
 ## Installation Steps
 
 1. Install Tesseract OCR on your system (see Prerequisites above)
-2. Install Python dependencies:
+2. Install Poppler utilities for PDF support (see Prerequisites above)
+3. Install Python dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Verify installation:
+4. Verify installation:
    ```bash
    python extract_receipt.py --help
    ```
@@ -64,11 +72,12 @@ pip install -r requirements.txt
 ### Basic Usage
 
 ```bash
-python extract_receipt.py <path_to_receipt_image> [--debug]
+python extract_receipt.py <path_to_receipt_file> [--vendor VENDOR_NAME] [--debug]
 ```
 
 **Arguments**:
-- `<path_to_receipt_image>`: Path to the receipt image file (required)
+- `<path_to_receipt_file>`: Path to the receipt image or PDF file (required)
+- `--vendor VENDOR_NAME`: Optional vendor name to override auto-detection
 - `--debug`: Optional flag to display raw OCR output and debug information
 
 ### Examples
@@ -83,8 +92,14 @@ python extract_receipt.py receipt.png
 # Process a TIFF image (common for scanned receipts)
 python extract_receipt.py receipt.tiff
 
+# Process a PDF receipt file
+python extract_receipt.py receipt.pdf
+
 # Process with debug output
 python extract_receipt.py receipt.jpg --debug
+
+# Process PDF with debug output
+python extract_receipt.py receipt.pdf --debug
 ```
 
 ### Output Format
@@ -105,7 +120,9 @@ Transaction Amount: $4.75
 
 If a field cannot be extracted, it will display "Not found".
 
-## Supported Image Formats
+## Supported File Formats
+
+### Image Formats
 
 The script supports a wide range of image formats through the Pillow library:
 
@@ -121,10 +138,18 @@ The script supports a wide range of image formats through the Pillow library:
 - **PSD** - Adobe Photoshop format
 - **SGI**, **TGA**, **XBM**, **XPM**, **PPM**, **PGM**, **PBM** - Additional formats
 
+### PDF Format
+
+The script also supports **PDF files** (both scanned PDFs and text-based PDFs):
+- Converts PDF pages to images at 300 DPI for optimal OCR quality
+- Processes all pages in multi-page PDFs
+- Extracts text using OCR (works for scanned PDFs)
+
 The script automatically handles:
-- EXIF orientation data (auto-rotation)
+- EXIF orientation data (auto-rotation for images)
 - Color mode conversion (RGB, RGBA, grayscale)
 - Image preprocessing for OCR optimization
+- PDF page conversion to images
 
 ## Technical Details
 
@@ -141,8 +166,9 @@ The script applies several preprocessing steps to improve OCR accuracy:
 ### OCR Processing
 
 - Uses Tesseract OCR engine via `pytesseract`
-- Extracts full text from entire receipt
-- Separately extracts text from logo/header region (top 15% of image)
+- For images: Extracts full text from entire receipt image
+- For PDFs: Converts pages to images, then extracts text from each page
+- Separately extracts text from logo/header region (top 15% of image/first PDF page)
 - Uses custom OCR configuration for logo region (PSM mode 6)
 
 ### Data Extraction Logic
@@ -196,10 +222,12 @@ Debug output includes:
 - ✅ Extracts vendor name from receipt header/logo region
 - ✅ Identifies transaction date in various formats
 - ✅ Finds transaction amount (typically the total)
-- ✅ Uses OCR to read text from receipt images
-- ✅ Supports multiple image formats
+- ✅ Uses OCR to read text from receipt images and PDFs
+- ✅ Supports multiple image formats (JPEG, PNG, TIFF, etc.)
+- ✅ Supports PDF files (scanned and text-based)
 - ✅ Automatic image preprocessing for better accuracy
 - ✅ Handles EXIF orientation data
+- ✅ Processes multi-page PDFs
 - ✅ Filters out extraneous information (addresses, phone numbers, etc.)
 - ✅ Debug mode for troubleshooting
 
@@ -225,11 +253,17 @@ Error: File not found: <path>
 ```
 **Solution**: Verify the file path is correct and file exists
 
-**Unsupported image format**:
+**Unsupported file format**:
 ```
-Error: File appears to be an unsupported image format
+Error: File appears to be an unsupported format
 ```
-**Solution**: Ensure the file is a valid image in a supported format
+**Solution**: Ensure the file is a valid image in a supported format or a PDF file
+
+**PDF conversion errors**:
+```
+Error reading PDF: ...
+```
+**Solution**: Ensure Poppler utilities are installed (see Prerequisites section)
 
 **Poor OCR accuracy**:
 - Try preprocessing the image manually (increase contrast, sharpen)

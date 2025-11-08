@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 Receipt OCR Script
-Extracts transaction date, amount, and vendor name from a receipt image.
+Extracts transaction date, amount, and vendor name from a receipt image or PDF.
 Supports multiple image formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, and more.
+Also supports PDF files (both scanned and text-based).
 """
 
 import sys
@@ -14,6 +15,7 @@ from typing import Optional, Tuple
 try:
     from PIL import Image, ImageOps, ImageEnhance, ImageFilter
     import pytesseract
+    from pdf2image import convert_from_path
 except ImportError:
     print("Error: Required packages not installed. Please run: pip install -r requirements.txt")
     sys.exit(1)
@@ -105,6 +107,59 @@ def validate_image_format(image_path: str) -> bool:
         return False
 
 
+def is_pdf_file(file_path: str) -> bool:
+    """
+    Check if the file is a PDF based on its extension.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        True if file is a PDF, False otherwise
+    """
+    return Path(file_path).suffix.upper() in ('.PDF',)
+
+
+def extract_text_from_pdf(pdf_path: str) -> str:
+    """
+    Extract text from PDF file by converting pages to images and using OCR.
+    Supports both scanned PDFs and text-based PDFs.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        
+    Returns:
+        Extracted text from all pages of the PDF
+    """
+    try:
+        # Convert PDF pages to images
+        # dpi=300 provides good quality for OCR
+        images = convert_from_path(pdf_path, dpi=300)
+        
+        if not images:
+            print("Warning: No pages found in PDF", file=sys.stderr)
+            return ""
+        
+        # Extract text from each page
+        all_text = []
+        for i, image in enumerate(images):
+            if len(images) > 1:
+                print(f"Processing page {i + 1} of {len(images)}...", file=sys.stderr)
+            
+            # Preprocess image for better OCR accuracy
+            processed_image = preprocess_image_for_ocr(image)
+            
+            # Extract text using OCR
+            page_text = pytesseract.image_to_string(processed_image)
+            all_text.append(page_text)
+        
+        # Combine text from all pages
+        return "\n".join(all_text)
+    except Exception as e:
+        print(f"Error reading PDF: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def extract_text_from_image(image_path: str) -> str:
     """
     Extract text from receipt image using OCR.
@@ -147,61 +202,72 @@ def extract_text_from_image(image_path: str) -> str:
         sys.exit(1)
 
 
-def extract_text_from_logo_region(image_path: str, logo_height_percent: float = 0.15) -> Optional[str]:
+def extract_text_from_logo_region(file_path: str, logo_height_percent: float = 0.15, is_pdf: bool = False) -> Optional[str]:
     """
     Extract text from the logo region at the top of the receipt.
-    Supports multiple image formats.
+    Supports multiple image formats and PDF files.
     
     Args:
-        image_path: Path to the receipt image
+        file_path: Path to the receipt image or PDF
         logo_height_percent: Percentage of image height to use for logo region (default 15%)
+        is_pdf: Whether the file is a PDF (default False)
     
     Returns:
         Extracted text from logo region, or None if no text found
     """
     try:
-        with Image.open(image_path) as img:
-            # Handle EXIF orientation data
-            try:
-                # Automatically rotate image based on EXIF orientation tag
-                img = ImageOps.exif_transpose(img)
-            except Exception:
-                # If EXIF reading fails, continue without rotation
-                pass
-            
-            # Convert to RGB if necessary for better OCR compatibility
-            if img.mode not in ('RGB', 'L'):
-                rgb_image = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'RGBA':
-                    rgb_image.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
-                else:
-                    rgb_image.paste(img)
-                img = rgb_image
-            
-            width, height = img.size
-            
-            # Calculate logo region (top portion of image)
-            logo_height = int(height * logo_height_percent)
-            
-            # Crop the top portion of the image
-            logo_region = img.crop((0, 0, width, logo_height))
-            
-            # Preprocess logo region for better OCR accuracy
-            logo_region = preprocess_image_for_ocr(logo_region)
-            
-            # Use OCR with configuration optimized for logos/titles
-            # Page segmentation mode 6 = Assume a single uniform block of text
-            # Page segmentation mode 7 = Treat the image as a single text line
-            # Page segmentation mode 8 = Treat the image as a single word
-            custom_config = r'--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.,- '
-            
-            logo_text = pytesseract.image_to_string(logo_region, config=custom_config)
-            
-            # Clean up the text
-            logo_text = logo_text.strip()
-            
-            if logo_text and len(logo_text) > 2:
-                return logo_text
+        # For PDFs, convert first page to image
+        if is_pdf:
+            images = convert_from_path(file_path, dpi=300, first_page=1, last_page=1)
+            if not images:
+                return None
+            img = images[0]
+        else:
+            # Use context manager for image files
+            with Image.open(file_path) as opened_img:
+                img = opened_img.copy()
+        
+        # Handle EXIF orientation data
+        try:
+            # Automatically rotate image based on EXIF orientation tag
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            # If EXIF reading fails, continue without rotation
+            pass
+        
+        # Convert to RGB if necessary for better OCR compatibility
+        if img.mode not in ('RGB', 'L'):
+            rgb_image = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'RGBA':
+                rgb_image.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
+            else:
+                rgb_image.paste(img)
+            img = rgb_image
+        
+        width, height = img.size
+        
+        # Calculate logo region (top portion of image)
+        logo_height = int(height * logo_height_percent)
+        
+        # Crop the top portion of the image
+        logo_region = img.crop((0, 0, width, logo_height))
+        
+        # Preprocess logo region for better OCR accuracy
+        logo_region = preprocess_image_for_ocr(logo_region)
+        
+        # Use OCR with configuration optimized for logos/titles
+        # Page segmentation mode 6 = Assume a single uniform block of text
+        # Page segmentation mode 7 = Treat the image as a single text line
+        # Page segmentation mode 8 = Treat the image as a single word
+        custom_config = r'--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.,- '
+        
+        logo_text = pytesseract.image_to_string(logo_region, config=custom_config)
+        
+        # Clean up the text
+        logo_text = logo_text.strip()
+        
+        if logo_text and len(logo_text) > 2:
+            return logo_text
         
         return None
     except Exception as e:
@@ -513,15 +579,18 @@ def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
 
 def main():
     """
-    Main function to process receipt image.
+    Main function to process receipt image or PDF.
     Supports multiple image formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, and more.
+    Also supports PDF files (both scanned and text-based).
     """
     if len(sys.argv) < 2:
-        print("Usage: python extract_receipt.py <path_to_receipt_image> [--vendor VENDOR_NAME] [--debug]")
-        print("\nSupported formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, PCX, EPS, PSD, and more")
+        print("Usage: python extract_receipt.py <path_to_receipt_file> [--vendor VENDOR_NAME] [--debug]")
+        print("\nSupported formats:")
+        print("  Images: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, PCX, EPS, PSD, and more")
+        print("  Documents: PDF")
         sys.exit(1)
     
-    image_path = sys.argv[1]
+    file_path = sys.argv[1]
     debug_mode = '--debug' in sys.argv
     
     # Parse vendor name from command-line arguments
@@ -535,25 +604,38 @@ def main():
             sys.exit(1)
     
     # Validate file exists
-    if not Path(image_path).exists():
-        print(f"Error: File not found: {image_path}", file=sys.stderr)
+    if not Path(file_path).exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
         sys.exit(1)
     
-    # Check if file is likely an image
-    try:
-        with Image.open(image_path) as img:
-            format_name = img.format or "Unknown"
-            if debug_mode:
-                print(f"Image format detected: {format_name}", file=sys.stderr)
-                print(f"Image mode: {img.mode}", file=sys.stderr)
-                print(f"Image size: {img.size}", file=sys.stderr)
-    except Exception as e:
-        print(f"Error: File appears to be an unsupported image format: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Check if file is PDF or image
+    is_pdf = is_pdf_file(file_path)
     
-    # Extract text from image
-    print("Extracting text from receipt...", file=sys.stderr)
-    text = extract_text_from_image(image_path)
+    if is_pdf:
+        if debug_mode:
+            print("File type detected: PDF", file=sys.stderr)
+        # Extract text from PDF
+        print("Extracting text from PDF receipt...", file=sys.stderr)
+        text = extract_text_from_pdf(file_path)
+    else:
+        # Check if file is likely an image
+        try:
+            with Image.open(file_path) as img:
+                format_name = img.format or "Unknown"
+                if debug_mode:
+                    print(f"Image format detected: {format_name}", file=sys.stderr)
+                    print(f"Image mode: {img.mode}", file=sys.stderr)
+                    print(f"Image size: {img.size}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error: File appears to be an unsupported format: {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        # Extract text from image
+        print("Extracting text from receipt image...", file=sys.stderr)
+        text = extract_text_from_image(file_path)
+    
+    # Extract logo text for vendor name extraction
+    logo_text = extract_text_from_logo_region(file_path, is_pdf=is_pdf)
     
     # Extract information
     date = extract_date(text)
@@ -564,7 +646,11 @@ def main():
     if vendor:
         print(f"Vendor: {vendor}")
     else:
-        print("Vendor: Not found")
+        vendor_name = extract_vendor(text, logo_text)
+        if vendor_name:
+            print(f"Vendor: {vendor_name}")
+        else:
+            print("Vendor: Not found")
     
     if date:
         print(f"Transaction Date: {date}")
