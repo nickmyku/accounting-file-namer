@@ -8,7 +8,7 @@ and renames files to include vendor, date, and transaction amount.
 import sys
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 # Import functions from extract_receipt.py
 try:
