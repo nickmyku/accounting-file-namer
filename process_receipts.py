@@ -199,7 +199,7 @@ def generate_new_filename(file_path: Path, vendor: Optional[str], date: Optional
     """
     Generate a new filename based on extracted information.
     
-    Format: {vendor}_{date}_{$amount}.{ext}
+    Format: {vendor}{date}{$amount}.{ext}
     
     Args:
         file_path: Original file path
@@ -218,8 +218,8 @@ def generate_new_filename(file_path: Path, vendor: Optional[str], date: Optional
     date_part = sanitize_filename(date) if date else "unknown_date"
     amount_part = format_amount_for_filename(amount)
     
-    # Build new filename
-    new_filename = f"{vendor_part}_{date_part}_{amount_part}{ext}"
+    # Build new filename (no underscores between parts)
+    new_filename = f"{vendor_part}{date_part}{amount_part}{ext}"
     
     return new_filename
 
