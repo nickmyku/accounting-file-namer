@@ -517,12 +517,22 @@ def main():
     Supports multiple image formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, and more.
     """
     if len(sys.argv) < 2:
-        print("Usage: python extract_receipt.py <path_to_receipt_image> [--debug]")
+        print("Usage: python extract_receipt.py <path_to_receipt_image> [--vendor VENDOR_NAME] [--debug]")
         print("\nSupported formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, PCX, EPS, PSD, and more")
         sys.exit(1)
     
     image_path = sys.argv[1]
     debug_mode = '--debug' in sys.argv
+    
+    # Parse vendor name from command-line arguments
+    vendor = None
+    if '--vendor' in sys.argv:
+        vendor_index = sys.argv.index('--vendor')
+        if vendor_index + 1 < len(sys.argv):
+            vendor = sys.argv[vendor_index + 1]
+        else:
+            print("Error: --vendor requires a vendor name", file=sys.stderr)
+            sys.exit(1)
     
     # Validate file exists
     if not Path(image_path).exists():
@@ -545,12 +555,7 @@ def main():
     print("Extracting text from receipt...", file=sys.stderr)
     text = extract_text_from_image(image_path)
     
-    # Extract text from logo region (top of receipt)
-    print("Extracting text from logo region...", file=sys.stderr)
-    logo_text = extract_text_from_logo_region(image_path)
-    
     # Extract information
-    vendor = extract_vendor(text, logo_text)
     date = extract_date(text)
     amount = extract_amount(text)
     
