@@ -4,9 +4,11 @@ A Python-based OCR (Optical Character Recognition) script that automatically ext
 
 ## Project Overview
 
-**Purpose**: Extract structured data (vendor, date, amount, receipt/invoice number) from receipt images and PDF files for accounting purposes.
+**Purpose**: Extract structured data (vendor, date, amount, receipt/invoice number) from receipt images and PDF files for accounting purposes, and automatically rename files with extracted information.
 
-**Main Script**: `extract_receipt.py` - Command-line tool that processes receipt images and PDF files and outputs extracted information.
+**Main Scripts**:
+- `extract_receipt.py` - Command-line tool that processes individual receipt images and PDF files and outputs extracted information.
+- `process_receipts.py` - Batch processing tool that processes all receipt files in a folder and automatically renames them with vendor, date, and amount information.
 
 **Key Functionality**:
 - Performs OCR on receipt images and PDF files using Tesseract
@@ -17,12 +19,14 @@ A Python-based OCR (Optical Character Recognition) script that automatically ext
 - Identifies transaction amount (typically the total)
 - Extracts receipt number or invoice number from receipt text
 - Outputs structured data in human-readable format
+- Batch processes multiple files and automatically renames them
 
 ## Project Structure
 
 ```
 /workspace/
-├── extract_receipt.py    # Main script (executable)
+├── extract_receipt.py    # Single-file receipt extraction script (executable)
+├── process_receipts.py   # Batch processing and renaming script (executable)
 ├── requirements.txt      # Python dependencies
 └── README.md            # This file
 ```
@@ -122,6 +126,60 @@ Receipt/Invoice Number: RCPT-12345
 - **Receipt/Invoice Number**: Receipt number, invoice number, order number, transaction reference, or similar identifier extracted from receipt text
 
 If a field cannot be extracted, it will display "Not found".
+
+## Batch Processing
+
+### Using `process_receipts.py`
+
+The `process_receipts.py` script processes all receipt files in a folder, extracts information from each file, and automatically renames them to include vendor, date, and transaction amount.
+
+**Usage**:
+```bash
+python process_receipts.py <folder_path> <vendor_name> [--dry-run]
+```
+
+**Arguments**:
+- `<folder_path>`: Path to folder containing receipt files (required)
+- `<vendor_name>`: Vendor name to use for all files (required)
+- `--dry-run`: Preview changes without actually renaming files (optional)
+
+**Examples**:
+```bash
+# Process all receipts in a folder
+python process_receipts.py /path/to/receipts "Starbucks Coffee"
+
+# Preview changes before renaming (dry-run mode)
+python process_receipts.py /path/to/receipts "Starbucks Coffee" --dry-run
+
+# Process receipts with a vendor name containing spaces
+python process_receipts.py ./receipts "Target Store"
+```
+
+**File Naming Format**:
+Files are renamed using the format: `{vendor} {date} {$amount}.{ext}`
+
+Example output:
+- `receipt.jpg` → `Starbucks_Coffee 2023-12-15 $4.75.jpg`
+- `invoice.pdf` → `Target_Store 2024-01-20 $125.50.pdf`
+
+**Features**:
+- Automatically finds all supported image and PDF files in the folder
+- Processes each file using OCR to extract date and amount
+- Uses the provided vendor name for all files
+- Sanitizes filenames to ensure they're valid (removes invalid characters)
+- Handles duplicate filenames by adding a counter
+- Continues processing even if individual files fail
+- Shows progress and summary statistics
+
+**Dry-Run Mode**:
+Use `--dry-run` to preview what files would be renamed without actually renaming them. This is useful for verifying the vendor name and checking what information will be extracted before making changes.
+
+**Output**:
+The script prints processing status to stderr, showing:
+- Number of files found
+- Processing status for each file
+- New filename for each file
+- Summary of successful and failed operations
 
 ## Supported File Formats
 
@@ -245,6 +303,9 @@ Debug output includes:
 - ✅ Processes multi-page PDFs
 - ✅ Filters out extraneous information (addresses, phone numbers, etc.)
 - ✅ Debug mode for troubleshooting
+- ✅ Batch processing of multiple files in a folder
+- ✅ Automatic file renaming with extracted information
+- ✅ Dry-run mode to preview changes before renaming
 
 ## Troubleshooting
 
@@ -286,11 +347,32 @@ Error reading PDF: ...
 - Use debug mode to inspect raw OCR output
 - Check image quality and lighting conditions
 
+**Batch processing errors**:
+```
+Error: Could not import from extract_receipt.py
+```
+**Solution**: Ensure `extract_receipt.py` is in the same directory as `process_receipts.py`
+
+**No files found in folder**:
+```
+No supported image or PDF files found in <folder>
+```
+**Solution**: Verify the folder path is correct and contains image or PDF files in supported formats
+
+**Permission errors when renaming**:
+```
+Error renaming <filename>: Permission denied
+```
+**Solution**: Ensure you have write permissions in the target folder
+
 ## Code Structure
+
+### `extract_receipt.py`
 
 **Main Functions**:
 - `main()` - Entry point, handles command-line arguments
 - `extract_text_from_image()` - Performs OCR on full image
+- `extract_text_from_pdf()` - Extracts text from PDF files
 - `extract_text_from_logo_region()` - Extracts text from header region
 - `preprocess_image_for_ocr()` - Applies image enhancements
 - `extract_vendor()` - Extracts vendor name from text
@@ -298,9 +380,27 @@ Error reading PDF: ...
 - `extract_amount()` - Finds transaction amount
 - `extract_receipt_or_invoice_number()` - Extracts receipt/invoice number from text
 - `validate_image_format()` - Checks if image format is supported
+- `is_pdf_file()` - Checks if file is a PDF
 
 **Key Constants**:
 - `SUPPORTED_FORMATS` - Set of supported image format extensions
+
+### `process_receipts.py`
+
+**Main Functions**:
+- `main()` - Entry point, handles command-line arguments and batch processing
+- `get_supported_image_files()` - Finds all supported image and PDF files in a folder
+- `process_receipt_file()` - Processes a single receipt file and extracts information
+- `generate_new_filename()` - Creates new filename with vendor, date, and amount
+- `rename_file_with_info()` - Renames file with extracted information
+- `sanitize_filename()` - Removes invalid characters from filenames
+- `format_amount_for_filename()` - Formats amount for use in filename
+
+**Key Features**:
+- Imports and reuses functions from `extract_receipt.py`
+- Handles batch processing of multiple files
+- Provides dry-run mode for safe preview
+- Error handling and progress reporting
 
 ## Development Notes
 
@@ -314,7 +414,8 @@ Error reading PDF: ...
 
 Potential improvements:
 - Support for multiple currencies
-- Batch processing of multiple images
 - Export to structured formats (JSON, CSV)
 - Configuration file for customization
 - Integration with accounting software APIs
+- Option to preserve original filenames while creating organized copies
+- Support for custom filename templates
