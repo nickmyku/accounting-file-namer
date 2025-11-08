@@ -398,12 +398,15 @@ def extract_receipt_or_invoice_number(text: str) -> Optional[str]:
     Returns:
         Receipt or invoice number if found, None otherwise
     """
+    # Common words that should NOT be captured as receipt numbers
+    blacklist_words = {'for', 'number', 'no', 'num', 'is', 'the', 'a', 'an', 'to', 'of', 'in', 'on', 'at', 'by'}
+    
     # Common patterns for receipt/invoice numbers
-    # Pattern 1: "Receipt #12345" or "Invoice #12345"
+    # Pattern 1: "Receipt #12345" or "Invoice #12345" or "Receipt 12345"
     patterns = [
-        r'(?:receipt|invoice|order|transaction|ref|reference)[\s#:]*#?\s*([A-Z0-9\-]+)',
-        r'(?:receipt|invoice|order|transaction|ref|reference)\s*(?:number|no|num|#)[\s:]*([A-Z0-9\-]+)',
-        r'(?:receipt|invoice|order|transaction|ref|reference)[\s:]+([A-Z0-9\-]+)',
+        r'(?:receipt|invoice|order|transaction|ref|reference)[\s#:]+#\s*([A-Z0-9\-]+)',  # With # symbol
+        r'(?:receipt|invoice|order|transaction|ref|reference)\s*(?:number|no|num|#)[\s:]+([A-Z0-9\-]+)',
+        r'(?:receipt|invoice|order|transaction|ref|reference)[\s:]+([A-Z0-9]{2,}[0-9]+[A-Z0-9\-]*)',  # Must contain at least one digit
         r'#\s*([A-Z0-9\-]+)',  # Standalone # followed by alphanumeric
         r'(?:RCPT|INV|ORD|REF)[\s\-:]+([A-Z0-9\-]+)',  # Abbreviations like RCPT-12345
     ]
@@ -418,10 +421,17 @@ def extract_receipt_or_invoice_number(text: str) -> Optional[str]:
             number = re.sub(r'^(receipt|invoice|order|transaction|ref|reference)[\s#:]*', '', number, flags=re.IGNORECASE)
             number = number.strip()
             
+            # Skip if it's a blacklisted common word
+            if number.lower() in blacklist_words:
+                continue
+            
             # Validate it looks like a receipt/invoice number
             # Should be at least 3 characters and contain alphanumeric characters
+            # Must contain at least one digit OR be all uppercase alphanumeric (like codes)
             if len(number) >= 3 and re.search(r'[A-Z0-9]', number, re.IGNORECASE):
-                return number
+                # Must contain at least one digit OR be a code-like format (all caps, alphanumeric)
+                if re.search(r'\d', number) or (number.isupper() and number.isalnum() and len(number) >= 4):
+                    return number
     
     # Fallback: Look for numbers near keywords on the same line
     lines = text.split('\n')
@@ -435,6 +445,10 @@ def extract_receipt_or_invoice_number(text: str) -> Optional[str]:
             if number_matches:
                 # Filter out dates, amounts, phone numbers, etc.
                 for match in number_matches:
+                    match_lower = match.lower()
+                    # Skip if it's a blacklisted common word
+                    if match_lower in blacklist_words:
+                        continue
                     # Skip if it looks like a date (contains slashes or dashes with 2-4 digit groups)
                     if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$', match):
                         continue
@@ -447,8 +461,10 @@ def extract_receipt_or_invoice_number(text: str) -> Optional[str]:
                     # Skip if it's a zip code (5 digits)
                     if re.match(r'^\d{5}$', match):
                         continue
-                    # This looks like a receipt/invoice number
-                    return match
+                    # Must contain at least one digit OR be a code-like format (all caps, alphanumeric)
+                    if re.search(r'\d', match) or (match.isupper() and match.isalnum() and len(match) >= 4):
+                        # This looks like a receipt/invoice number
+                        return match
     
     return None
 
