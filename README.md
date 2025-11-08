@@ -162,12 +162,22 @@ Example output:
 - `receipt.jpg` → `Starbucks_Coffee 2023-12-15 $4.75.jpg`
 - `invoice.pdf` → `Target_Store 2024-01-20 $125.50.pdf`
 
+**Duplicate Filename Handling**:
+If multiple receipts would generate the same filename (same vendor, date, and amount), the script automatically appends a unique number to prevent overwriting:
+- First file: `Starbucks_Coffee 2023-12-15 $4.75.jpg`
+- Second file with same info: `Starbucks_Coffee 2023-12-15 $4.75_1.jpg`
+- Third file with same info: `Starbucks_Coffee 2023-12-15 $4.75_2.jpg`
+- And so on...
+
+The script will never overwrite existing files. If a file already has the correct name, it will be skipped and a message will be displayed.
+
 **Features**:
 - Automatically finds all supported image and PDF files in the folder
 - Processes each file using OCR to extract date and amount
 - Uses the provided vendor name for all files
 - Sanitizes filenames to ensure they're valid (removes invalid characters)
-- Handles duplicate filenames by adding a counter
+- Prevents overwriting existing files by appending unique numbers (`_1`, `_2`, `_3`, etc.) to duplicate filenames
+- Skips renaming files that already have the correct name
 - Continues processing even if individual files fail
 - Shows progress and summary statistics
 
@@ -178,7 +188,7 @@ Use `--dry-run` to preview what files would be renamed without actually renaming
 The script prints processing status to stderr, showing:
 - Number of files found
 - Processing status for each file
-- New filename for each file
+- New filename for each file (or message if file already has correct name)
 - Summary of successful and failed operations
 
 ## Supported File Formats
@@ -305,6 +315,7 @@ Debug output includes:
 - ✅ Debug mode for troubleshooting
 - ✅ Batch processing of multiple files in a folder
 - ✅ Automatic file renaming with extracted information
+- ✅ Prevents overwriting files by appending unique numbers to duplicate filenames
 - ✅ Dry-run mode to preview changes before renaming
 
 ## Troubleshooting
@@ -399,6 +410,7 @@ Error renaming <filename>: Permission denied
 **Key Features**:
 - Imports and reuses functions from `extract_receipt.py`
 - Handles batch processing of multiple files
+- Prevents overwriting files by appending unique numbers to duplicate filenames
 - Provides dry-run mode for safe preview
 - Error handling and progress reporting
 
