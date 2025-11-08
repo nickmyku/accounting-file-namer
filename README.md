@@ -1,10 +1,10 @@
 # Receipt OCR Extraction Tool
 
-A Python-based OCR (Optical Character Recognition) script that automatically extracts key accounting information from receipt images and PDF files. The script processes receipt images and PDFs to extract vendor name, transaction date, and transaction amount, making it useful for accounting file organization and record-keeping.
+A Python-based OCR (Optical Character Recognition) script that automatically extracts key accounting information from receipt images and PDF files. The script processes receipt images and PDFs to extract vendor name, transaction date, transaction amount, and receipt/invoice number, making it useful for accounting file organization and record-keeping.
 
 ## Project Overview
 
-**Purpose**: Extract structured data (vendor, date, amount) from receipt images and PDF files for accounting purposes.
+**Purpose**: Extract structured data (vendor, date, amount, receipt/invoice number) from receipt images and PDF files for accounting purposes.
 
 **Main Script**: `extract_receipt.py` - Command-line tool that processes receipt images and PDF files and outputs extracted information.
 
@@ -15,6 +15,7 @@ A Python-based OCR (Optical Character Recognition) script that automatically ext
 - Extracts vendor name from logo/header region
 - Parses transaction date in multiple formats
 - Identifies transaction amount (typically the total)
+- Extracts receipt number or invoice number from receipt text
 - Outputs structured data in human-readable format
 
 ## Project Structure
@@ -111,12 +112,14 @@ The script outputs structured receipt information:
 Vendor: Starbucks Coffee
 Transaction Date: 2023-12-15
 Transaction Amount: $4.75
+Receipt/Invoice Number: RCPT-12345
 ```
 
 **Output fields**:
 - **Vendor**: Business/vendor name extracted from receipt header/logo region
 - **Transaction Date**: Date in YYYY-MM-DD format (ISO 8601)
 - **Transaction Amount**: Currency amount in $XX.XX format
+- **Receipt/Invoice Number**: Receipt number, invoice number, order number, transaction reference, or similar identifier extracted from receipt text
 
 If a field cannot be extracted, it will display "Not found".
 
@@ -193,6 +196,17 @@ The script applies several preprocessing steps to improve OCR accuracy:
 - Selects largest amount found (typically the total)
 - Handles comma-separated numbers
 
+**Receipt/Invoice Number**:
+- Searches for patterns containing keywords: "receipt", "invoice", "order", "transaction", "ref", "reference"
+- Recognizes common formats:
+  - "Receipt #12345" or "Invoice #12345"
+  - "Receipt Number: 12345" or "Invoice No: 12345"
+  - "RCPT-12345", "INV-12345", "ORD-12345" (abbreviated formats)
+  - Standalone "#" followed by alphanumeric code
+- Filters out false positives (dates, phone numbers, zip codes, years)
+- Looks for alphanumeric codes (3+ characters) near receipt/invoice keywords
+- Returns the first valid match found
+
 ### Error Handling
 
 - Validates file existence before processing
@@ -222,6 +236,7 @@ Debug output includes:
 - ✅ Extracts vendor name from receipt header/logo region
 - ✅ Identifies transaction date in various formats
 - ✅ Finds transaction amount (typically the total)
+- ✅ Extracts receipt number or invoice number from receipt text
 - ✅ Uses OCR to read text from receipt images and PDFs
 - ✅ Supports multiple image formats (JPEG, PNG, TIFF, etc.)
 - ✅ Supports PDF files (scanned and text-based)
@@ -281,6 +296,7 @@ Error reading PDF: ...
 - `extract_vendor()` - Extracts vendor name from text
 - `extract_date()` - Parses and formats transaction date
 - `extract_amount()` - Finds transaction amount
+- `extract_receipt_or_invoice_number()` - Extracts receipt/invoice number from text
 - `validate_image_format()` - Checks if image format is supported
 
 **Key Constants**:
