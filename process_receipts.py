@@ -242,12 +242,20 @@ def rename_file_with_info(file_path: Path, vendor: Optional[str], date: Optional
     new_filename = generate_new_filename(file_path, vendor, date, amount)
     new_path = file_path.parent / new_filename
     
-    # Check if target file already exists
-    if new_path.exists() and new_path != file_path:
+    # If the file already has the correct name, skip renaming
+    if new_path == file_path:
+        print(f"  Already named correctly: {file_path.name}", file=sys.stderr)
+        return True
+    
+    # Check if target file already exists and is different from source
+    # If so, add a unique number to make it unique
+    if new_path.exists():
         # Add a counter to make it unique
         counter = 1
         base_name = new_path.stem
-        while new_path.exists():
+        # Keep incrementing until we find a filename that doesn't exist
+        # and is different from the source file
+        while new_path.exists() and new_path != file_path:
             new_filename = f"{base_name}_{counter}{new_path.suffix}"
             new_path = file_path.parent / new_filename
             counter += 1
