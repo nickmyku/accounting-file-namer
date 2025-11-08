@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Receipt OCR Script
-Extracts transaction date, amount, and vendor name from a receipt image or PDF.
+Extracts transaction date, amount, vendor name, and receipt/invoice number from a receipt image or PDF.
 Supports multiple image formats: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO, and more.
 Also supports PDF files (both scanned and text-based).
 """
@@ -388,6 +388,71 @@ def extract_amount(text: str) -> Optional[str]:
     return None
 
 
+def extract_receipt_or_invoice_number(text: str) -> Optional[str]:
+    """
+    Extract receipt number or invoice number from receipt text.
+    
+    Args:
+        text: Full OCR text from receipt
+        
+    Returns:
+        Receipt or invoice number if found, None otherwise
+    """
+    # Common patterns for receipt/invoice numbers
+    # Pattern 1: "Receipt #12345" or "Invoice #12345"
+    patterns = [
+        r'(?:receipt|invoice|order|transaction|ref|reference)[\s#:]*#?\s*([A-Z0-9\-]+)',
+        r'(?:receipt|invoice|order|transaction|ref|reference)\s*(?:number|no|num|#)[\s:]*([A-Z0-9\-]+)',
+        r'(?:receipt|invoice|order|transaction|ref|reference)[\s:]+([A-Z0-9\-]+)',
+        r'#\s*([A-Z0-9\-]+)',  # Standalone # followed by alphanumeric
+        r'(?:RCPT|INV|ORD|REF)[\s\-:]+([A-Z0-9\-]+)',  # Abbreviations like RCPT-12345
+    ]
+    
+    # Try each pattern
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            # Return the first match, cleaned up
+            number = matches[0].strip()
+            # Remove common prefixes/suffixes that might have been captured
+            number = re.sub(r'^(receipt|invoice|order|transaction|ref|reference)[\s#:]*', '', number, flags=re.IGNORECASE)
+            number = number.strip()
+            
+            # Validate it looks like a receipt/invoice number
+            # Should be at least 3 characters and contain alphanumeric characters
+            if len(number) >= 3 and re.search(r'[A-Z0-9]', number, re.IGNORECASE):
+                return number
+    
+    # Fallback: Look for numbers near keywords on the same line
+    lines = text.split('\n')
+    for line in lines:
+        line_lower = line.lower()
+        # Check if line contains receipt/invoice keywords
+        if any(keyword in line_lower for keyword in ['receipt', 'invoice', 'order', 'transaction', 'ref', 'reference']):
+            # Look for alphanumeric codes/numbers in the same line
+            # Pattern: alphanumeric string with 3+ characters, possibly with dashes
+            number_matches = re.findall(r'\b([A-Z0-9]{3,}(?:-[A-Z0-9]+)*)\b', line, re.IGNORECASE)
+            if number_matches:
+                # Filter out dates, amounts, phone numbers, etc.
+                for match in number_matches:
+                    # Skip if it looks like a date (contains slashes or dashes with 2-4 digit groups)
+                    if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$', match):
+                        continue
+                    # Skip if it looks like a phone number
+                    if re.match(r'^\d{3}[-.\s]?\d{3}[-.\s]?\d{4}$', match):
+                        continue
+                    # Skip if it's just a year (4 digits starting with 19 or 20)
+                    if re.match(r'^(19|20)\d{2}$', match):
+                        continue
+                    # Skip if it's a zip code (5 digits)
+                    if re.match(r'^\d{5}$', match):
+                        continue
+                    # This looks like a receipt/invoice number
+                    return match
+    
+    return None
+
+
 def extract_vendor(text: str, logo_text: Optional[str] = None) -> Optional[str]:
     """
     Extract vendor name from receipt text.
@@ -640,6 +705,7 @@ def main():
     # Extract information
     date = extract_date(text)
     amount = extract_amount(text)
+    receipt_number = extract_receipt_or_invoice_number(text)
     
     # Output results
     print("\n--- Receipt Details ---")
@@ -661,6 +727,11 @@ def main():
         print(f"Transaction Amount: {amount}")
     else:
         print("Transaction Amount: Not found")
+    
+    if receipt_number:
+        print(f"Receipt/Invoice Number: {receipt_number}")
+    else:
+        print("Receipt/Invoice Number: Not found")
     
     # Also output raw text for debugging (optional)
     if debug_mode:
