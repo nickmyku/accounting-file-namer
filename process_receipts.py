@@ -68,28 +68,28 @@ def sanitize_filename(text: str, max_length: int = 50) -> str:
 def format_amount_for_filename(amount: Optional[str]) -> str:
     """
     Format amount string for use in filename.
-    Converts $XX.XX to XX.XX format.
+    Converts $XX.XX to $XX.XX format (keeps dollar sign).
     
     Args:
         amount: Amount string (e.g., "$4.75" or "$123.45")
         
     Returns:
-        Formatted amount string (e.g., "4.75" or "123.45")
+        Formatted amount string (e.g., "$4.75" or "$123.45")
     """
     if not amount:
         return "unknown_amount"
     
-    # Remove dollar sign and spaces
+    # Remove existing dollar sign and spaces, then add dollar sign back
     formatted = amount.replace('$', '').strip()
     
-    # Replace dots with underscores for filename compatibility
-    # Actually, let's keep dots but ensure it's valid
-    formatted = formatted.replace(',', '')  # Remove commas
+    # Remove commas
+    formatted = formatted.replace(',', '')
     
     # Validate it's a number
     try:
         float(formatted)
-        return formatted
+        # Add dollar sign prefix
+        return f"${formatted}"
     except ValueError:
         return "unknown_amount"
 
@@ -199,7 +199,7 @@ def generate_new_filename(file_path: Path, vendor: Optional[str], date: Optional
     """
     Generate a new filename based on extracted information.
     
-    Format: {vendor}_{date}_{amount}.{ext}
+    Format: {vendor}_{date}_{$amount}.{ext}
     
     Args:
         file_path: Original file path
