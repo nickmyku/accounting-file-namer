@@ -156,11 +156,11 @@ python process_receipts.py ./receipts "Target Store"
 ```
 
 **File Naming Format**:
-Files are renamed using the format: `{vendor}{date}{$amount}.{ext}`
+Files are renamed using the format: `{vendor} {date} {$amount}.{ext}`
 
 Example output:
-- `receipt.jpg` → `Starbucks_Coffee2023-12-15$4.75.jpg`
-- `invoice.pdf` → `Target_Store2024-01-20$125.50.pdf`
+- `receipt.jpg` → `Starbucks_Coffee 2023-12-15 $4.75.jpg`
+- `invoice.pdf` → `Target_Store 2024-01-20 $125.50.pdf`
 
 **Features**:
 - Automatically finds all supported image and PDF files in the folder
